@@ -132,6 +132,15 @@ venv.bak/
 llms/
 llms.bak/
 
+# Keep environment.yml for reproduction
+!environment.yml
+
+# Conda specific
+.conda/
+conda-meta/
+conda-env/
+*.conda
+
 # Spyder project settings
 .spyderproject
 .spyproject
