@@ -12,18 +12,18 @@ import gradio as gr
 load_dotenv(override=True)
 openai = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 anthropic = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
-MACHINE_SPEC = "MacbookPro, Apple M1 Chip"
-
-# Define global variables for HF integration
-# For HF chat-based CodeQwen model
+# Define global variables for HuggingFace Model integration
 code_qwen = "Qwen/CodeQwen1.5-7B-Chat"
-CODE_QWEN_URL = ""
+CODE_QWEN_URL = "add-your-api-endpoint-here"  # NOTE: get this from your Hugging Face Inference API settings
+
+# Machine specification for code conversion
+MACHINE_SPEC = "MacbookPro, Apple M1 Chip"
 
 
 def clean_code(code, target_language):
     """
-    Remove markdown code fences and stray language indicators.
-    Also apply language-specific replacements.
+    Removes markdown code fences and stray language indicators.
+    Also applies language-specific replacements.
     """
     raw_lines = code.splitlines()
     cleaned_lines = []
@@ -40,16 +40,33 @@ def clean_code(code, target_language):
         cleaned = process_rust_code(cleaned)
     return cleaned
 
-# Conversion prompt functions (target language-aware)
 def user_prompt_for(python_code, target_language):
-    return (
-        f"Rewrite this Python code in {target_language} with the fastest possible implementation that produces identical output. "
-        f"Respond only with {target_language} code; do not explain your work. "
-        "Pay attention to number types to ensure no int overflows. Remember to #include all necessary C++ packages such as iomanip.\n\n"
-        + python_code
+    """Constructs a detailed and specific prompt for AI to convert Python code to the specified target language.
+    """
+    if target_language == "C++":
+        include_message = "Remember to include all necessary C++ packages such as <iostream>, <vector>, and <iomanip> for formatted output."
+    elif target_language == "C":
+        include_message = "Ensure to include standard C libraries needed such as <stdio.h> or <stdlib.h> as required by the functionality."
+    elif target_language == "Rust":
+        include_message = "Make sure to declare any necessary Rust crates such as 'use std::vec::Vec;' or 'use std::io;' where appropriate."
+    else:
+        include_message = "Include all necessary libraries or modules as appropriate for the target language."
+
+    additional_details = (
+        f"Please translate the following Python code into {target_language}. The translation should adhere to idiomatic "
+        f"constructs of {target_language} and should be direct and highly efficient. {include_message} "
+        f"Pay attention to number types to ensure no int overflows."
+        f"The code should be thread-safe if applicable and should avoid external dependencies unless absolutely necessary. \n\n "
     )
 
+    # Combining the general instructions with specific details and the actual Python code to be translated
+    prompt = f"{additional_details}\n\n# Python Code:\n{python_code}"
+    return prompt
+
+
 def messages_for(python_code, target_language):
+    """Creates structured system and user messages for AI-based conversion.
+    """
     system_message = (
         f"You are an assistant that reimplements Python code in high performance {target_language} for an {MACHINE_SPEC}. "
         f"Respond only with {target_language} code; use comments sparingly. "
@@ -61,7 +78,8 @@ def messages_for(python_code, target_language):
     ]
 
 def write_output(code, target_language):
-    """Write the converted code to a file based on target language."""
+    """Writes the converted code to a file based on target language.
+    """
     tag = target_language.lower() if target_language is not None else ""
     if target_language == "C++":
         filename = "optimized.cpp"
@@ -81,8 +99,10 @@ def write_output(code, target_language):
         f.write(cleaned)
     return filename
 
-# GPT integration for conversion
+
 def stream_gpt(python_code, target_language, model_version):
+    """Streams AI-generated code using an OpenAI GPT model.
+    """
     stream = openai.chat.completions.create(
         model=model_version,  # Use selected GPT model version
         messages=messages_for(python_code, target_language),
@@ -98,6 +118,8 @@ def stream_gpt(python_code, target_language, model_version):
 
 # Claude integration for conversion
 def stream_claude(python_code, target_language, model_version):
+    """Streams AI-generated code using an Anthropic Claude model.
+    """
     prompt = user_prompt_for(python_code, target_language)
     response = anthropic.completions.create(
         prompt=prompt,
@@ -111,9 +133,8 @@ def stream_claude(python_code, target_language, model_version):
         yield reply.replace(f"```{target_language}\n", "").replace("```", "")
 
 # Hugging Face integration functions
-def stream_code_qwen(python_code, target_language, model_version):
-    """
-    HF chat-based model using CodeQwen.
+def stream_code_qwen(python_code, target_language):
+    """Streams AI-generated code using an HuggingFace - CodeQwen model.
     """
     from transformers import AutoTokenizer
     tokenizer = AutoTokenizer.from_pretrained(code_qwen)
@@ -128,23 +149,9 @@ def stream_code_qwen(python_code, target_language, model_version):
         result += r.token.text
         yield result.replace(f"```{target_language}\n", "").replace("```", "")
 
-def stream_huggingface(python_code, target_language, model_version):
-    """
-    HF single-prompt model integration.
-    """
-    prompt = user_prompt_for(python_code, target_language)
-    from huggingface_hub import InferenceClient
-    client = InferenceClient(model_name=model_version, token=os.getenv("HF_TOKEN"))
-    stream = client.text_generation(prompt, stream=True, details=True, max_new_tokens=3000)
-    reply = ""
-    for chunk in stream:
-        reply += chunk.token.text
-        yield reply.replace(f"```{target_language}\n", "").replace("```", "")
-
 
 def optimize(python_code, combined_model, target_language):
-    """
-    combined_model is a string like "GPT: gpt-4o", "CLAUDE: claude-3-5-sonnet-20240620" or "HF: model_name"
+    """Optimizes Python code by converting it to a specified target language using AI models. 
     """
     provider, model_version = [x.strip() for x in combined_model.split(":")]
     if provider == "GPT":
@@ -157,14 +164,11 @@ def optimize(python_code, combined_model, target_language):
         if "CodeQwen" in model_version:
             for partial in stream_code_qwen(python_code, target_language, model_version):
                 yield partial
-        else:
-            for partial in stream_huggingface(python_code, target_language, model_version):
-                yield partial
     else:
         raise ValueError("Unknown model provider")
 
 def execute_python(code):
-    """Execute Python code and return its output."""
+    """Executes Python code and return its output."""
     env = {}  # Dedicated global namespace
     try:
         output = io.StringIO()
@@ -175,6 +179,8 @@ def execute_python(code):
     return output.getvalue()
 
 def execute_cpp(code):
+    """Executes C++ code and return its output.
+    """
     write_output(code, target_language="C++")
     try:
         compile_cmd = [
@@ -189,6 +195,8 @@ def execute_cpp(code):
         return f"Error:\n{e.stderr}"
 
 def execute_c(code):
+    """Executes C code and return its output.
+    """
     cleaned_code = clean_code(code, "C")
     with open("optimized.c", "w") as f:
         f.write(cleaned_code)
@@ -202,6 +210,8 @@ def execute_c(code):
         return f"Error:\n{e.stderr}"
 
 def process_rust_code(code):
+    """Processes Rust code to make necessary replacements for compatibility and correctness.
+    """
     code = code.replace("{:.6f}", "{:.6}")
     code = re.sub(
         r'(println!$begin:math:text$"Execution Time: \\{\\:\\.6\\} seconds", duration\\.as_secs_f64)(\\s*)$',
@@ -215,6 +225,8 @@ def process_rust_code(code):
     return code
 
 def execute_rust(code):
+    """Executes Rust code and return its output.
+    """
     code = code.replace("```rust\n", "").replace("```", "")
     lines = code.split('\n', 1)
     if lines and lines[0].strip().lower() == "rust":
@@ -232,7 +244,8 @@ def execute_rust(code):
         return f"Error:\n{e.stderr}"
 
 def execute_target_code(code, target_language):
-    """Select the appropriate execution function based on target language."""
+    """Selects the appropriate execution function based on target language.
+    """
     if target_language == "C++":
         return execute_cpp(code)
     elif target_language == "C":
@@ -249,6 +262,8 @@ css = """
 """
 
 def launch_ui():
+    """Launches the Gradio UI for code conversion and execution.
+    """
     with gr.Blocks(css=css) as ui:
         gr.Markdown("## Convert Python Code to C/C++/Rust")
         with gr.Row():
