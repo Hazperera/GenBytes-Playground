@@ -1,6 +1,9 @@
-# LearningLLM
+# GENBYTES-Playground
 
-This repository documents my learning journey exploring Large Language Models (LLMs) and their practical applications. <br>
+Welcome to my hands-on exploration of Large Language Models (LLMs)! This repository showcases a series of practical projects that demonstrate the power and versatility of modern AI technologies. 
+
+*This work is part of my journey through the comprehensive course [Mastering Generative AI and LLMs: An 8-Week Hands-On Journey](https://www.udemy.com/course/llm-engineering-master-ai-and-large-language-models) led by Ed Donner.*
+
 
 ## Project Files Description
 
@@ -71,4 +74,4 @@ pip install -r requirements.txt
 
 - We recommend using these settings judiciously to balance creativity and determinism based on your specific needs.
 
-![alt text](image.png)
+![image](image.png)
